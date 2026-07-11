@@ -1,0 +1,46 @@
+name: mp3trim
+description: "A mobile audio trimmer app for MP3, WAV, and M4A files."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.4.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # File picking
+  file_picker: ^8.1.2
+
+  # Audio playback
+  just_audio: ^0.9.40
+
+  # FFmpeg (LGPL build — WAV/AAC/M4A encoding, no GPL codecs)
+  ffmpeg_kit_flutter_audio: ^6.0.3
+
+  # Paths & storage
+  path_provider: ^2.1.4
+  path: ^1.9.0
+
+  # Native share sheet
+  share_plus: ^10.0.2
+
+  # Permissions
+  permission_handler: ^11.3.1
+
+  # State management
+  provider: ^6.1.2
+
+  # Google Fonts
+  google_fonts: ^6.2.1
+
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
