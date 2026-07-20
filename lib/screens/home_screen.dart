@@ -17,6 +17,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen>
     with SingleTickerProviderStateMixin {
+  AudioFileModel? _selectedFile;
   bool _isLoading = false;
   String? _errorMessage;
   late AnimationController _pulseController;
@@ -100,24 +101,9 @@ class _HomeScreenState extends State<HomeScreen>
 
       if (!mounted) return;
 
-      await Navigator.of(context).push(
-        PageRouteBuilder(
-          pageBuilder: (_, anim, __) => EditorScreen(audioFile: audioFile),
-          transitionsBuilder: (_, anim, __, child) {
-            return FadeTransition(
-              opacity: anim,
-              child: SlideTransition(
-                position: Tween<Offset>(
-                  begin: const Offset(0.05, 0),
-                  end: Offset.zero,
-                ).animate(CurvedAnimation(parent: anim, curve: Curves.easeOut)),
-                child: child,
-              ),
-            );
-          },
-          transitionDuration: const Duration(milliseconds: 350),
-        ),
-      );
+      setState(() {
+        _selectedFile = audioFile;
+      });
     } catch (e) {
       setState(() {
         _errorMessage = 'Error: $e';
@@ -129,19 +115,41 @@ class _HomeScreenState extends State<HomeScreen>
 
   @override
   Widget build(BuildContext context) {
+    if (_selectedFile != null) {
+      return EditorScreen(
+        audioFile: _selectedFile!,
+        onGoHome: () {
+          setState(() {
+            _selectedFile = null;
+          });
+        },
+      );
+    }
+
     final theme = Theme.of(context);
-    final size = MediaQuery.of(context).size;
 
     return Scaffold(
       backgroundColor: const Color(0xFF070F1A),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF0D1B2A),
+        elevation: 0,
+        leading: const IconButton(
+          icon: Icon(Icons.home_rounded, color: Colors.white30),
+          onPressed: null,
+        ),
+        title: const Text('Audio Trimmer'),
+        centerTitle: true,
+      ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          child: SizedBox(
-            height: size.height - MediaQuery.of(context).padding.top -
-                MediaQuery.of(context).padding.bottom,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return SingleChildScrollView(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                child: IntrinsicHeight(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
                 const SizedBox(height: 48),
                 // App logo / icon
                 ScaleTransition(
@@ -376,6 +384,9 @@ class _HomeScreenState extends State<HomeScreen>
               ],
             ),
           ),
+        ),
+      );
+          },
         ),
       ),
     );

@@ -21,6 +21,7 @@ class EditorProvider extends ChangeNotifier {
   // Playback
   bool isPlaying = false;
   double playheadFraction = 0.0;
+  double volume = 1.0;
 
   // Effects
   bool fadeIn = false;
@@ -138,6 +139,7 @@ class EditorProvider extends ChangeNotifier {
       await _audioService.pause();
     } else {
       await _audioService.loadRegion(audioFile.path, startDuration, endDuration);
+      await _audioService.setVolume(volume);
       await _audioService.play();
     }
   }
@@ -145,6 +147,27 @@ class EditorProvider extends ChangeNotifier {
   Future<void> stopPlayback() async {
     await _audioService.stop();
     playheadFraction = startFraction;
+    notifyListeners();
+  }
+
+  /// Stops playback and sets end trim point to the current playhead position.
+  Future<void> stopAndSetEnd() async {
+    if (isPlaying) {
+      final currentFrac = playheadFraction;
+      await _audioService.stop();
+      isPlaying = false;
+      // Set end to current position (must be after start)
+      endFraction = currentFrac.clamp(startFraction + 0.001, 1.0);
+      playheadFraction = startFraction;
+      notifyListeners();
+    } else {
+      await stopPlayback();
+    }
+  }
+
+  void setVolume(double val) {
+    volume = val.clamp(0.0, 1.0);
+    _audioService.setVolume(volume);
     notifyListeners();
   }
 

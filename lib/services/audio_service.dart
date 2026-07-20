@@ -7,6 +7,7 @@ class AudioService {
   Stream<PlayerState> get playerStateStream => _player.playerStateStream;
   bool get isPlaying => _player.playing;
   Duration get currentPosition => _player.position;
+  double get volume => _player.volume;
 
   /// Loads the audio file and sets up a clipping source to play the selected region.
   Future<void> loadRegion(String filePath, Duration start, Duration end) async {
@@ -44,6 +45,11 @@ class AudioService {
 
   Future<void> seekTo(Duration position) async {
     await _player.seek(position);
+  }
+
+  /// Sets the playback volume (0.0 to 1.0).
+  Future<void> setVolume(double volume) async {
+    await _player.setVolume(volume.clamp(0.0, 1.0));
   }
 
   /// Returns the total duration of the loaded source.

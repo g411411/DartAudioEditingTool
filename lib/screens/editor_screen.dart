@@ -14,21 +14,23 @@ import '../widgets/export_dialog.dart';
 
 class EditorScreen extends StatelessWidget {
   final AudioFileModel audioFile;
+  final VoidCallback onGoHome;
 
-  const EditorScreen({super.key, required this.audioFile});
+  const EditorScreen({super.key, required this.audioFile, required this.onGoHome});
 
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
       create: (_) => EditorProvider(audioFile),
-      child: _EditorView(audioFile: audioFile),
+      child: _EditorView(audioFile: audioFile, onGoHome: onGoHome),
     );
   }
 }
 
 class _EditorView extends StatefulWidget {
   final AudioFileModel audioFile;
-  const _EditorView({required this.audioFile});
+  final VoidCallback onGoHome;
+  const _EditorView({required this.audioFile, required this.onGoHome});
 
   @override
   State<_EditorView> createState() => _EditorViewState();
@@ -111,7 +113,10 @@ class _EditorViewState extends State<_EditorView> {
         barrierDismissible: false,
         builder: (ctx) => ExportDialog(
           result: result,
-          onTrimAnother: () => Navigator.of(context).pop(),
+          onTrimAnother: () {
+            Navigator.of(context).pop();
+            widget.onGoHome();
+          },
         ),
       );
     } catch (e) {
@@ -144,7 +149,7 @@ class _EditorViewState extends State<_EditorView> {
             if (didPop) return;
             final shouldPop = await _onWillPop(provider);
             if (shouldPop && context.mounted) {
-              Navigator.of(context).pop();
+              widget.onGoHome();
             }
           },
           child: Scaffold(
@@ -153,12 +158,12 @@ class _EditorViewState extends State<_EditorView> {
               backgroundColor: const Color(0xFF0D1B2A),
               elevation: 0,
               leading: IconButton(
-                icon: const Icon(Icons.arrow_back_ios_rounded,
+                icon: const Icon(Icons.home_rounded,
                     color: Colors.white70),
                 onPressed: () async {
                   final shouldPop = await _onWillPop(provider);
                   if (shouldPop && context.mounted) {
-                    Navigator.of(context).pop();
+                    widget.onGoHome();
                   }
                 },
               ),
@@ -304,8 +309,8 @@ class _EditorViewState extends State<_EditorView> {
                                   ? null
                                   : () => _exportAudio(provider),
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: theme.colorScheme.primary,
-                                foregroundColor: Colors.white,
+                                backgroundColor: Colors.yellow,
+                                foregroundColor: Colors.black,
                                 disabledBackgroundColor:
                                     Colors.grey.withOpacity(0.3),
                                 shape: RoundedRectangleBorder(

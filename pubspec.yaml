@@ -17,7 +17,7 @@ dependencies:
   just_audio: ^0.9.40
 
   # FFmpeg (LGPL build — WAV/AAC/M4A encoding, no GPL codecs)
-  ffmpeg_kit_flutter_audio: ^6.0.3
+  ffmpeg_kit_flutter_new: ^4.1.0
 
   # Paths & storage
   path_provider: ^2.1.4
