@@ -11,13 +11,13 @@ dependencies:
     sdk: flutter
 
   # File picking
-  file_picker: ^8.1.2
+  file_picker: ^11.0.2
 
   # Audio playback
   just_audio: ^0.9.40
 
   # FFmpeg (LGPL build — WAV/AAC/M4A encoding, no GPL codecs)
-  ffmpeg_kit_flutter_new: ^4.1.0
+  ffmpeg_kit_flutter_new_audio: ^2.2.2
 
   # Paths & storage
   path_provider: ^2.1.4
