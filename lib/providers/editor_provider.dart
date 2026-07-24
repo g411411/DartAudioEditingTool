@@ -23,12 +23,6 @@ class EditorProvider extends ChangeNotifier {
   double playheadFraction = 0.0;
   double volume = 1.0;
 
-  // Effects
-  bool fadeIn = false;
-  double fadeInDuration = 1.0;
-  bool fadeOut = false;
-  double fadeOutDuration = 1.0;
-
   // Format & filename
   OutputFormat outputFormat = OutputFormat.m4a;
   late String outputFileName;
@@ -110,11 +104,6 @@ class EditorProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setFadeIn(bool val) { fadeIn = val; notifyListeners(); }
-  void setFadeInDuration(double val) { fadeInDuration = val; notifyListeners(); }
-  void setFadeOut(bool val) { fadeOut = val; notifyListeners(); }
-  void setFadeOutDuration(double val) { fadeOutDuration = val; notifyListeners(); }
-
   void setOutputFormat(OutputFormat fmt) {
     outputFormat = fmt;
     final base = FileUtils.baseName(audioFile.path);
@@ -128,7 +117,7 @@ class EditorProvider extends ChangeNotifier {
   }
 
   bool get hasUnsavedChanges =>
-      startFraction != 0.0 || endFraction != 1.0 || fadeIn || fadeOut;
+      startFraction != 0.0 || endFraction != 1.0;
 
   // M4R 40-second limit enforcement
   bool get isM4rTooLong =>
@@ -175,10 +164,6 @@ class EditorProvider extends ChangeNotifier {
     return TrimSettings(
       start: startDuration,
       end: endDuration,
-      fadeIn: fadeIn,
-      fadeInDuration: fadeInDuration,
-      fadeOut: fadeOut,
-      fadeOutDuration: fadeOutDuration,
       outputFormat: outputFormat,
       outputFileName: outputFileName,
     );

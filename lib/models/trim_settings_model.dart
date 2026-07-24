@@ -44,20 +44,12 @@ extension OutputFormatExtension on OutputFormat {
 class TrimSettings {
   final Duration start;
   final Duration end;
-  final bool fadeIn;
-  final double fadeInDuration; // seconds
-  final bool fadeOut;
-  final double fadeOutDuration; // seconds
   final OutputFormat outputFormat;
   final String outputFileName;
 
   const TrimSettings({
     required this.start,
     required this.end,
-    this.fadeIn = false,
-    this.fadeInDuration = 1.0,
-    this.fadeOut = false,
-    this.fadeOutDuration = 1.0,
     this.outputFormat = OutputFormat.m4a,
     required this.outputFileName,
   });
@@ -67,20 +59,12 @@ class TrimSettings {
   TrimSettings copyWith({
     Duration? start,
     Duration? end,
-    bool? fadeIn,
-    double? fadeInDuration,
-    bool? fadeOut,
-    double? fadeOutDuration,
     OutputFormat? outputFormat,
     String? outputFileName,
   }) {
     return TrimSettings(
       start: start ?? this.start,
       end: end ?? this.end,
-      fadeIn: fadeIn ?? this.fadeIn,
-      fadeInDuration: fadeInDuration ?? this.fadeInDuration,
-      fadeOut: fadeOut ?? this.fadeOut,
-      fadeOutDuration: fadeOutDuration ?? this.fadeOutDuration,
       outputFormat: outputFormat ?? this.outputFormat,
       outputFileName: outputFileName ?? this.outputFileName,
     );

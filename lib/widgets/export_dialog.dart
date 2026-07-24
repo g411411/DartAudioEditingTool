@@ -49,13 +49,15 @@ class _ExportDialogState extends State<ExportDialog>
     );
   }
 
-  Future<void> _saveToDownloads() async {
+  Future<void> _saveWithPicker() async {
     setState(() { _saving = true; _saveMessage = null; });
     try {
-      final path = await ExportService.saveToDownloads(widget.result);
+      final path = await ExportService.saveWithUserChoice(widget.result);
       setState(() {
         _saving = false;
-        _saveMessage = 'Saved to: ${FileUtils.fileName(path)}';
+        if (path != null) {
+          _saveMessage = 'Saved to: $path';
+        }
       });
     } catch (e) {
       setState(() {
@@ -214,11 +216,11 @@ class _ExportDialogState extends State<ExportDialog>
                               ),
                             )
                           : _DialogButton(
-                              icon: Icons.download_rounded,
-                              label: 'Save',
+                              icon: Icons.folder_open_rounded,
+                              label: 'Save As...',
                               color: const Color(0xFF1A2D42),
                               borderColor: const Color(0xFF1E3A5F),
-                              onTap: _saveToDownloads,
+                              onTap: _saveWithPicker,
                             ),
                     ),
                   ],

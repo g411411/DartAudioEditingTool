@@ -8,7 +8,6 @@ import '../utils/file_utils.dart';
 import '../widgets/waveform_widget.dart';
 import '../widgets/time_fields_row.dart';
 import '../widgets/playback_controls.dart';
-import '../widgets/effects_panel.dart';
 import '../widgets/format_selector.dart';
 import '../widgets/export_dialog.dart';
 
@@ -114,7 +113,6 @@ class _EditorViewState extends State<_EditorView> {
         builder: (ctx) => ExportDialog(
           result: result,
           onTrimAnother: () {
-            Navigator.of(context).pop();
             widget.onGoHome();
           },
         ),
@@ -238,13 +236,6 @@ class _EditorViewState extends State<_EditorView> {
                         const PlaybackControls(),
 
                         const SizedBox(height: 28),
-
-                        // Effects
-                        _SectionLabel(label: 'EFFECTS'),
-                        const SizedBox(height: 8),
-                        const EffectsPanel(),
-
-                        const SizedBox(height: 24),
 
                         // Format selector
                         _SectionLabel(label: 'OUTPUT'),

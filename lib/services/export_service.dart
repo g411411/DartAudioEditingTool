@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:ffmpeg_kit_flutter_new_audio/ffmpeg_kit.dart';
 import 'package:ffmpeg_kit_flutter_new_audio/return_code.dart';
@@ -33,26 +34,6 @@ class ExportService {
     final outputFileName = settings.outputFileName;
     final outputPath = p.join(tempDir.path, outputFileName);
 
-    // Build FFmpeg filter chain for fades
-    final List<String> filters = [];
-    final selectionDurationSec =
-        settings.selectionDuration.inMilliseconds / 1000.0;
-
-    if (settings.fadeIn) {
-      final dur = settings.fadeInDuration.clamp(0.1, selectionDurationSec / 2);
-      filters.add('afade=t=in:st=0:d=$dur');
-    }
-
-    if (settings.fadeOut) {
-      final dur = settings.fadeOutDuration.clamp(0.1, selectionDurationSec / 2);
-      final startTime = (selectionDurationSec - dur).clamp(0.0, selectionDurationSec);
-      filters.add('afade=t=out:st=${startTime.toStringAsFixed(3)}:d=${dur.toStringAsFixed(3)}');
-    }
-
-    final filterArg = filters.isNotEmpty
-        ? '-af "${filters.join(',')}"'
-        : '';
-
     final startArg = DurationFormatter.toFFmpegTime(settings.start);
     final endArg = DurationFormatter.toFFmpegTime(settings.end);
     final codec = settings.outputFormat.ffmpegCodec;
@@ -61,10 +42,10 @@ class ExportService {
     String command;
     if (settings.outputFormat == OutputFormat.wav) {
       command =
-          '-y -i "$inputPath" -ss $startArg -to $endArg $filterArg -c:a $codec -ar 44100 "$outputPath"';
+          '-y -i "$inputPath" -ss $startArg -to $endArg -c:a $codec -ar 44100 "$outputPath"';
     } else {
       command =
-          '-y -i "$inputPath" -ss $startArg -to $endArg $filterArg -c:a $codec -b:a 192k "$outputPath"';
+          '-y -i "$inputPath" -ss $startArg -to $endArg -c:a $codec -b:a 192k "$outputPath"';
     }
 
     // Report 10% progress while FFmpeg is running
@@ -93,22 +74,92 @@ class ExportService {
     );
   }
 
-  /// Copies the exported file to the device's Downloads (Android) or Documents (iOS) folder.
-  static Future<String> saveToDownloads(ExportResult result) async {
-    Directory targetDir;
-
-    if (!kIsWeb && Platform.isAndroid) {
-      targetDir = Directory('/storage/emulated/0/Download');
-      if (!targetDir.existsSync()) {
-        final extDir = await getExternalStorageDirectory();
-        targetDir = extDir ?? await getApplicationDocumentsDirectory();
+  /// Returns default Downloads directory path across platforms.
+  static Future<String?> getDownloadsDirectoryPath() async {
+    if (kIsWeb) return null;
+    if (Platform.isAndroid) {
+      final androidDownloadDir = Directory('/storage/emulated/0/Download');
+      if (androidDownloadDir.existsSync()) {
+        return androidDownloadDir.path;
       }
-    } else {
-      targetDir = await getApplicationDocumentsDirectory();
+    }
+    try {
+      final downloadsDir = await getDownloadsDirectory();
+      if (downloadsDir != null && downloadsDir.existsSync()) {
+        return downloadsDir.path;
+      }
+    } catch (_) {}
+
+    try {
+      final docsDir = await getApplicationDocumentsDirectory();
+      return docsDir.path;
+    } catch (_) {}
+
+    return null;
+  }
+
+  /// Prompts the user with a system File Picker dialog defaulting to Downloads,
+  /// allowing them to pick the save folder and file name.
+  static Future<String?> saveWithUserChoice(ExportResult result) async {
+    final downloadsDir = await getDownloadsDirectoryPath();
+    final ext = p.extension(result.outputFileName).replaceAll('.', '');
+    final sourceFile = File(result.outputPath);
+
+    if (!sourceFile.existsSync()) {
+      throw Exception('Exported file not found at ${result.outputPath}');
     }
 
-    final targetPath = p.join(targetDir.path, result.outputFileName);
-    await File(result.outputPath).copy(targetPath);
-    return targetPath;
+    final Uint8List bytes = await sourceFile.readAsBytes();
+
+    if (Platform.isAndroid) {
+      return await FilePicker.saveFile(
+        dialogTitle: 'Save audio file',
+        fileName: result.outputFileName,
+        type: FileType.custom,
+        allowedExtensions: [ext],
+        bytes: bytes,
+      );
+    }
+    try {
+      final String? selectedPath = await FilePicker.saveFile(
+        dialogTitle: 'Select location to save trimmed audio',
+        fileName: result.outputFileName,
+        initialDirectory: downloadsDir,
+        type: FileType.custom,
+        allowedExtensions: [ext],
+        bytes: bytes,
+      );
+
+      if (selectedPath != null && selectedPath.isNotEmpty) {
+        final targetFile = File(selectedPath);
+        // If file_picker did not automatically write bytes natively (e.g. desktop platforms)
+        if (!targetFile.existsSync() || targetFile.lengthSync() == 0) {
+          try {
+            await targetFile.writeAsBytes(bytes, flush: true);
+          } catch (_) {
+            // Ignore POSIX permission errors if Scoped Storage/SAF already saved the file bytes
+          }
+        }
+        return selectedPath;
+      }
+    } catch (e) {
+      // Fallback: ask for folder path
+      try {
+        final String? selectedDirectory = await FilePicker.getDirectoryPath(
+          dialogTitle: 'Select folder to save audio',
+          initialDirectory: downloadsDir,
+        );
+        if (selectedDirectory != null && selectedDirectory.isNotEmpty) {
+          final targetPath = p.join(selectedDirectory, result.outputFileName);
+          final targetFile = File(targetPath);
+          await targetFile.writeAsBytes(bytes, flush: true);
+          return targetPath;
+        }
+      } catch (fallbackError) {
+        throw Exception(
+            'Cannot write to selected location ($fallbackError). Please select the Downloads folder or a supported directory.');
+      }
+    }
+    return null;
   }
 }
