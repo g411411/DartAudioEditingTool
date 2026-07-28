@@ -32,12 +32,20 @@ class _TimeFieldsRowState extends State<TimeFieldsRow> {
 
   void _onStartSubmit(EditorProvider provider, String value) {
     final d = DurationFormatter.tryParse(value);
-    if (d != null) provider.setStartDuration(d);
+    if (d != null) {
+      provider.setStartDuration(d);
+    } else {
+      _startCtrl.text = DurationFormatter.format(provider.startDuration);
+    }
   }
 
   void _onEndSubmit(EditorProvider provider, String value) {
     final d = DurationFormatter.tryParse(value);
-    if (d != null) provider.setEndDuration(d);
+    if (d != null) {
+      provider.setEndDuration(d);
+    } else {
+      _endCtrl.text = DurationFormatter.format(provider.endDuration);
+    }
   }
 
   @override
@@ -109,7 +117,10 @@ class _TimeField extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         Focus(
-          onFocusChange: onFocusChange,
+          onFocusChange: (hasFocus) {
+            if (!hasFocus) onSubmit(controller.text);
+            onFocusChange(hasFocus);
+          },
           child: TextField(
             controller: controller,
             style: const TextStyle(

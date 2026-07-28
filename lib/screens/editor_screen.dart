@@ -15,7 +15,8 @@ class EditorScreen extends StatelessWidget {
   final AudioFileModel audioFile;
   final VoidCallback onGoHome;
 
-  const EditorScreen({super.key, required this.audioFile, required this.onGoHome});
+  const EditorScreen(
+      {super.key, required this.audioFile, required this.onGoHome});
 
   @override
   Widget build(BuildContext context) {
@@ -62,8 +63,8 @@ class _EditorViewState extends State<_EditorView> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel',
-                style: TextStyle(color: Colors.white60)),
+            child:
+                const Text('Cancel', style: TextStyle(color: Colors.white60)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
@@ -94,7 +95,10 @@ class _EditorViewState extends State<_EditorView> {
     final fileName = _fileNameCtrl.text.trim();
     if (fileName.isNotEmpty) provider.setOutputFileName(fileName);
 
-    setState(() { _isExporting = true; _exportProgress = 0; });
+    setState(() {
+      _isExporting = true;
+      _exportProgress = 0;
+    });
 
     try {
       final settings = provider.buildTrimSettings();
@@ -105,7 +109,9 @@ class _EditorViewState extends State<_EditorView> {
       );
 
       if (!mounted) return;
-      setState(() { _isExporting = false; });
+      setState(() {
+        _isExporting = false;
+      });
 
       await showDialog(
         context: context,
@@ -118,7 +124,9 @@ class _EditorViewState extends State<_EditorView> {
         ),
       );
     } catch (e) {
-      setState(() { _isExporting = false; });
+      setState(() {
+        _isExporting = false;
+      });
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -156,8 +164,7 @@ class _EditorViewState extends State<_EditorView> {
               backgroundColor: const Color(0xFF0D1B2A),
               elevation: 0,
               leading: IconButton(
-                icon: const Icon(Icons.home_rounded,
-                    color: Colors.white70),
+                icon: const Icon(Icons.home_rounded, color: Colors.white70),
                 onPressed: () async {
                   final shouldPop = await _onWillPop(provider);
                   if (shouldPop && context.mounted) {
@@ -189,8 +196,8 @@ class _EditorViewState extends State<_EditorView> {
               actions: [
                 Container(
                   margin: const EdgeInsets.only(right: 12),
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 10, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
                     color: theme.colorScheme.primary.withOpacity(0.15),
                     borderRadius: BorderRadius.circular(20),
@@ -260,13 +267,13 @@ class _EditorViewState extends State<_EditorView> {
                               fillColor: const Color(0xFF0F2236),
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(
-                                    color: Color(0xFF1E3A5F)),
+                                borderSide:
+                                    const BorderSide(color: Color(0xFF1E3A5F)),
                               ),
                               enabledBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(
-                                    color: Color(0xFF1E3A5F)),
+                                borderSide:
+                                    const BorderSide(color: Color(0xFF1E3A5F)),
                               ),
                               focusedBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
@@ -276,8 +283,6 @@ class _EditorViewState extends State<_EditorView> {
                               ),
                               contentPadding: const EdgeInsets.symmetric(
                                   horizontal: 16, vertical: 14),
-                              prefixIcon: Icon(Icons.drive_file_rename_outline,
-                                  color: Colors.white38, size: 18),
                               suffixIcon: IconButton(
                                 icon: Icon(Icons.clear,
                                     color: Colors.white38, size: 16),
@@ -383,8 +388,7 @@ class _ExportingOverlay extends StatelessWidget {
               child: LinearProgressIndicator(
                 value: progress > 0 ? progress : null,
                 backgroundColor: const Color(0xFF1E3A5F),
-                valueColor:
-                    AlwaysStoppedAnimation(theme.colorScheme.primary),
+                valueColor: AlwaysStoppedAnimation(theme.colorScheme.primary),
                 minHeight: 6,
               ),
             ),

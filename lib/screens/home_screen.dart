@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -11,6 +12,7 @@ import '../providers/editor_provider.dart';
 import '../services/concatenation_service.dart';
 import '../services/export_service.dart';
 import '../utils/file_utils.dart';
+import '../widgets/time_fields_row.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -27,6 +29,9 @@ class _HomeScreenState extends State<HomeScreen> {
   double _exportProgress = 0;
   double _concatProgress = 0;
   String? _message;
+  String? _lastTrimOutputFileName;
+  String? _lastSavedFolderName;
+  final TextEditingController _outputNameController = TextEditingController();
   String? _concatFirstPath;
   String? _concatSecondPath;
   String? _concatMessage;
@@ -82,7 +87,10 @@ class _HomeScreenState extends State<HomeScreen> {
           duration: duration,
           sizeBytes: FileUtils.getFileSize(path),
         );
-        _message = 'Loaded ${FileUtils.fileName(path)}';
+        _message = null;
+        _lastTrimOutputFileName = null;
+        _lastSavedFolderName = null;
+        _outputNameController.clear();
       });
     } catch (e) {
       setState(() => _message = 'Load failed: $e');
@@ -94,6 +102,19 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _saveTrimmedWav(EditorProvider provider) async {
     final file = _audioFile;
     if (file == null) return;
+
+    final defaultOutputFileName =
+        '${FileUtils.baseName(file.path)}_trimmed.wav';
+    final enteredOutputName = _outputNameController.text;
+    final outputFileName = _normalizeOutputFileName(
+      enteredOutputName.isEmpty ||
+              (_isSavedDestinationDisplay(enteredOutputName) &&
+                  _lastTrimOutputFileName != null)
+          ? _lastTrimOutputFileName ?? defaultOutputFileName
+          : enteredOutputName,
+      'wav',
+    );
+    _lastTrimOutputFileName = outputFileName;
 
     setState(() {
       _isExporting = true;
@@ -108,7 +129,7 @@ class _HomeScreenState extends State<HomeScreen> {
           start: provider.startDuration,
           end: provider.endDuration,
           outputFormat: OutputFormat.wav,
-          outputFileName: '${FileUtils.baseName(file.path)}_trimmed.wav',
+          outputFileName: outputFileName,
         ),
         onProgress: (progress) {
           if (mounted) setState(() => _exportProgress = progress);
@@ -119,8 +140,15 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() => _message = 'Choose save location...');
       final savedPath = await ExportService.saveWithUserChoice(result);
       if (!mounted) return;
-      setState(
-          () => _message = savedPath == null ? 'Save canceled.' : 'Saved WAV');
+      final savedFolderName =
+          savedPath == null ? null : _savedFolderName(savedPath);
+      setState(() {
+        _message = savedFolderName ?? 'Save canceled.';
+        if (savedFolderName != null) {
+          _lastSavedFolderName = savedFolderName;
+          _outputNameController.text = _savedDestinationLabel(savedFolderName);
+        }
+      });
     } catch (e) {
       if (mounted) setState(() => _message = 'Save failed: $e');
     } finally {
@@ -131,6 +159,55 @@ class _HomeScreenState extends State<HomeScreen> {
         });
       }
     }
+  }
+
+  String _savedFolderName(String savedLocation) {
+    final normalized = _decodeSavedLocation(savedLocation.trim())
+        .split('?')
+        .first
+        .replaceAll('\\', '/');
+    final pathPart =
+        normalized.startsWith('content://') && normalized.contains(':')
+            ? normalized.substring(normalized.lastIndexOf(':') + 1)
+            : normalized;
+    final lastSeparator = pathPart.lastIndexOf('/');
+
+    if (lastSeparator <= 0) {
+      return FileUtils.fileName(pathPart);
+    }
+
+    final parentPath = pathPart.substring(0, lastSeparator);
+    final folderName = parentPath.substring(parentPath.lastIndexOf('/') + 1);
+    return folderName.isEmpty ? parentPath : folderName;
+  }
+
+  String _decodeSavedLocation(String savedLocation) {
+    try {
+      return Uri.decodeComponent(savedLocation);
+    } catch (_) {
+      return savedLocation;
+    }
+  }
+
+  bool _isSavedDestinationDisplay(String value) {
+    final savedFolderName = _lastSavedFolderName;
+    return savedFolderName != null &&
+        value == _savedDestinationLabel(savedFolderName);
+  }
+
+  String _savedDestinationLabel(String folderName) => 'Saved in $folderName';
+
+  String _normalizeOutputFileName(String name, String extension) {
+    final safeName = name
+        .trim()
+        .replaceAll(RegExp(r'[\\/:*?"<>|]'), '_')
+        .replaceAll(RegExp(r'\s+'), ' ');
+    final cleanExtension = extension.replaceFirst('.', '');
+
+    if (safeName.toLowerCase().endsWith('.$cleanExtension')) {
+      return safeName;
+    }
+    return '$safeName.$cleanExtension';
   }
 
   Future<void> _pickConcatenationFile({required bool first}) async {
@@ -179,8 +256,9 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() => _concatMessage = 'Choose save location...');
       final savedPath = await ExportService.saveWithUserChoice(result);
       if (!mounted) return;
-      setState(() => _concatMessage =
-          savedPath == null ? 'Save canceled.' : 'Saved concatenated WAV');
+      setState(() => _concatMessage = savedPath == null
+          ? 'Save canceled.'
+          : _savedDestinationLabel(_savedFolderName(savedPath)));
     } catch (e) {
       if (mounted) setState(() => _concatMessage = 'Concat failed: $e');
     } finally {
@@ -191,6 +269,15 @@ class _HomeScreenState extends State<HomeScreen> {
         });
       }
     }
+  }
+
+  void _showHelpWalkthrough() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _HelpWalkthroughSheet(),
+    );
   }
 
   @override
@@ -206,383 +293,794 @@ class _HomeScreenState extends State<HomeScreen> {
           );
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0A1220),
-      body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            return Center(
-              child: FittedBox(
-                fit: BoxFit.contain,
-                child: SizedBox(
-                  width: 390,
-                  height: 790,
-                  child: content,
+      backgroundColor: const Color(0xFF081321),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF081321),
+        elevation: 0,
+        toolbarHeight: 46,
+        titleSpacing: 14,
+        title: const Text(
+          'Audio Trimmer',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 10),
+            child: TextButton.icon(
+              onPressed: _showHelpWalkthrough,
+              icon: const Icon(Icons.help_outline_rounded, size: 18),
+              label: const Text('Help'),
+              style: TextButton.styleFrom(
+                foregroundColor: const Color(0xFF8AB9FF),
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                textStyle: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
                 ),
               ),
-            );
-          },
+            ),
+          ),
+        ],
+      ),
+      body: SafeArea(
+        top: false,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(14, 8, 14, 16),
+          child: content,
         ),
       ),
     );
   }
 
-  Widget _buildBody(EditorProvider? provider) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const Text(
-            'Audio trimmer',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Color(0xFF68A7FF),
-              fontSize: 25,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Expanded(
-            flex: 57,
-            child: _buildTrimPanel(provider),
-          ),
-          const SizedBox(height: 10),
-          Expanded(
-            flex: 35,
-            child: _buildConcatPanel(),
-          ),
-        ],
-      ),
-    );
+  @override
+  void dispose() {
+    _outputNameController.dispose();
+    super.dispose();
   }
 
-  Widget _buildTrimPanel(EditorProvider? provider) {
+  Widget _buildBody(EditorProvider? provider) {
     final hasFile = provider != null && _audioFile != null;
     final start = hasFile ? provider.startDuration : Duration.zero;
     final end = hasFile ? provider.endDuration : Duration.zero;
     final total = _audioFile?.duration ?? Duration.zero;
-    final displayEnd = end == Duration.zero ? total : end;
+    final displayEnd = hasFile ? end : total;
 
-    return _GlassPanel(
-      color: const Color(0xFF132B4A),
-      borderColor: const Color(0xFF255C93),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _PanelHeader(
-            icon: Icons.content_cut_rounded,
-            title: 'Trim fragment',
-            color: const Color(0xFF68A7FF),
-          ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _ChooseSourceButton(
+          isLoading: _isLoading,
+          onPressed: _isLoading ? null : _selectTrimFile,
+        ),
+        if (_audioFile != null) ...[
           const SizedBox(height: 8),
-          _CompactFilePickerRow(
-            label: 'Source',
-            fileName: _audioFile?.name,
-            buttonText: _isLoading ? 'Loading' : 'Select',
-            color: const Color(0xFF2E7BFF),
-            onPressed: _isLoading ? null : _selectTrimFile,
-          ),
-          const SizedBox(height: 8),
-          _StatusLine(text: _message ?? 'Select a file to trim.'),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Text(_formatMs(start), style: _monoStyle(12)),
-              const Spacer(),
-              Text(_formatMs(displayEnd), style: _monoStyle(12)),
-            ],
-          ),
-          SliderTheme(
-            data: SliderThemeData(
-              trackHeight: 4,
-              activeTrackColor: const Color(0xFF64C59D),
-              inactiveTrackColor: const Color(0xFF30445D),
-              thumbColor: Colors.white,
-              overlayShape: SliderComponentShape.noOverlay,
-              rangeThumbShape:
-                  const RoundRangeSliderThumbShape(enabledThumbRadius: 5),
-            ),
-            child: RangeSlider(
-              values: RangeValues(hasFile ? provider.startFraction : 0,
-                  hasFile ? provider.endFraction : 1),
-              min: 0,
-              max: 1,
-              onChanged: hasFile
-                  ? (values) {
-                      provider.setStartFraction(values.start);
-                      provider.setEndFraction(values.end);
-                    }
-                  : null,
-            ),
-          ),
-          const SizedBox(height: 5),
-          Row(
-            children: [
-              Expanded(
-                child: _ActionButton(
-                  icon: provider?.isPlaying == true
-                      ? Icons.pause_rounded
-                      : Icons.play_arrow_rounded,
-                  label: 'Play',
-                  color: const Color(0xFF2E7BFF),
-                  onPressed: hasFile ? provider.togglePlayPause : null,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _ActionButton(
-                  icon: Icons.stop_rounded,
-                  label: 'Stop',
-                  color: const Color(0xFFE52A2A),
-                  onPressed: hasFile ? provider.stopPlayback : null,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _ActionButton(
-                  icon: Icons.restart_alt_rounded,
-                  label: 'Restart',
-                  color: const Color(0xFF637184),
-                  onPressed: hasFile ? provider.stopPlayback : null,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: _TimeTile(
-                  label: 'Start',
-                  value: start,
-                  buttonText: 'Set',
-                  color: const Color(0xFF6FAFFF),
-                  onPressed: hasFile
-                      ? () =>
-                          provider.setStartFraction(provider.playheadFraction)
-                      : null,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _TimeTile(
-                  label: 'End',
-                  value: displayEnd,
-                  buttonText: 'Set',
-                  color: const Color(0xFF9C6BFF),
-                  onPressed: hasFile
-                      ? () => provider.setEndFraction(provider.playheadFraction)
-                      : null,
-                ),
-              ),
-            ],
-          ),
-          const Spacer(),
-          Row(
-            children: [
-              Expanded(
-                child: _ActionButton(
-                  icon: Icons.volume_up_rounded,
-                  label: 'Preview',
-                  color: const Color(0xFF18A957),
-                  onPressed: hasFile ? provider.togglePlayPause : null,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _ActionButton(
-                  icon: _isExporting ? null : Icons.save_alt_rounded,
-                  label: _isExporting
-                      ? '${(_exportProgress * 100).round()}%'
-                      : 'Save WAV',
-                  color: const Color(0xFF2E7BFF),
-                  onPressed: hasFile && !_isExporting
-                      ? () => _saveTrimmedWav(provider)
-                      : null,
-                  busy: _isExporting,
-                ),
-              ),
-            ],
-          ),
+          _SelectedFileName(fileName: _audioFile!.name),
         ],
-      ),
+        if (_message != null) ...[
+          const SizedBox(height: 6),
+          _StatusText(text: _message!, color: Colors.white),
+        ],
+        const SizedBox(height: 10),
+        _WaveformSelector(
+          enabled: hasFile,
+          waveformData: hasFile ? provider.waveformData : const [],
+          startFraction: hasFile ? provider.startFraction : 0,
+          endFraction: hasFile ? provider.endFraction : 1,
+          playheadFraction: hasFile ? provider.playheadFraction : 0,
+          onChanged: hasFile
+              ? (values) {
+                  provider.setStartFraction(values.start);
+                  provider.setEndFraction(values.end);
+                }
+              : null,
+        ),
+        const SizedBox(height: 8),
+        if (hasFile)
+          TimeFieldsRow()
+        else
+          Row(
+            children: [
+              Text(_formatMs(start), style: _timeStyle),
+              const Spacer(),
+              Text(_formatMs(displayEnd), style: _timeStyle),
+            ],
+          ),
+        const SizedBox(height: 8),
+        _PlaybackRow(
+          hasFile: hasFile,
+          isPlaying: provider?.isPlaying == true,
+          onPlay: hasFile ? provider.togglePlayPause : null,
+          onStop: hasFile ? provider.stopPlayback : null,
+          onPreview: hasFile ? provider.togglePlayPause : null,
+          onRestart: hasFile ? provider.stopPlayback : null,
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: _FilledButton(
+                icon: Icons.vertical_align_top_rounded,
+                label: 'Set Start Time',
+                color: const Color(0xFF7C4DFF),
+                onPressed: hasFile
+                    ? () async =>
+                        provider.setStartFraction(provider.playheadFraction)
+                    : null,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _FilledButton(
+                icon: Icons.vertical_align_bottom_rounded,
+                label: 'Set End Time',
+                color: const Color(0xFF7C4DFF),
+                onPressed: hasFile
+                    ? () async =>
+                        provider.setEndFraction(provider.playheadFraction)
+                    : null,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        _OutputNameField(
+          controller: _outputNameController,
+          enabled: hasFile && !_isExporting,
+          prompt: hasFile ? null : 'Choose a file to trim.',
+        ),
+        const SizedBox(height: 8),
+        _FilledButton(
+          icon: _isExporting ? null : Icons.save_alt_rounded,
+          label: _isExporting
+              ? '${(_exportProgress * 100).round()}%'
+              : 'Save Trimmed WAV',
+          color: const Color(0xFF1E7BFF),
+          onPressed:
+              hasFile && !_isExporting ? () => _saveTrimmedWav(provider) : null,
+          busy: _isExporting,
+          height: 44,
+        ),
+        const SizedBox(height: 12),
+        _buildConcatCard(),
+      ],
     );
   }
 
-  Widget _buildConcatPanel() {
-    return _GlassPanel(
-      color: const Color(0xFF0F5F32),
-      borderColor: const Color(0xFF25A75A),
+  Widget _buildConcatCard() {
+    final canConcat = _concatFirstPath != null && _concatSecondPath != null;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFDDF8E8),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFF9ADBB5)),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _PanelHeader(
-            icon: Icons.merge_type_rounded,
-            title: 'Concatenate files',
-            color: const Color(0xFF74F0A2),
+          const Text(
+            'Concatenate Files',
+            style: TextStyle(
+              color: Color(0xFF10251A),
+              fontSize: 15,
+              fontWeight: FontWeight.w900,
+            ),
           ),
-          const SizedBox(height: 10),
-          _CompactFilePickerRow(
-            label: 'File 1',
+          const SizedBox(height: 8),
+          _ConcatFileRow(
             fileName: _concatFirstPath == null
-                ? null
+                ? 'First audio file'
                 : FileUtils.fileName(_concatFirstPath!),
-            buttonText: 'Select',
-            color: const Color(0xFF1E8CFF),
             onPressed: _isConcatenating
                 ? null
                 : () => _pickConcatenationFile(first: true),
           ),
           const SizedBox(height: 8),
-          _CompactFilePickerRow(
-            label: 'File 2',
+          _ConcatFileRow(
             fileName: _concatSecondPath == null
-                ? null
+                ? 'Second audio file'
                 : FileUtils.fileName(_concatSecondPath!),
-            buttonText: 'Select',
-            color: const Color(0xFF1E8CFF),
             onPressed: _isConcatenating
                 ? null
                 : () => _pickConcatenationFile(first: false),
           ),
-          const Spacer(),
-          _ActionButton(
-            icon: _isConcatenating ? null : Icons.save_alt_rounded,
+          const SizedBox(height: 10),
+          _FilledButton(
+            icon: _isConcatenating ? null : Icons.merge_type_rounded,
             label: _isConcatenating
                 ? '${(_concatProgress * 100).round()}%'
                 : 'Concatenate & Save WAV',
-            color: const Color(0xFF315DAE),
-            onPressed: _isConcatenating ? null : _concatenateAndSave,
+            color: const Color(0xFF1E7BFF),
+            disabledColor: const Color(0xFF9AA1A8),
+            onPressed:
+                canConcat && !_isConcatenating ? _concatenateAndSave : null,
             busy: _isConcatenating,
+            height: 44,
           ),
-          const SizedBox(height: 7),
-          _StatusLine(
-              text: _concatMessage ?? 'Select two files, then save result.'),
+          const SizedBox(height: 8),
+          _StatusText(
+            text: _concatMessage ?? 'Choose two files to concatenate.',
+            color: Colors.white,
+            darkBackground: true,
+          ),
         ],
       ),
     );
   }
 }
 
-class _GlassPanel extends StatelessWidget {
-  final Color color;
-  final Color borderColor;
-  final Widget child;
-
-  const _GlassPanel(
-      {required this.color, required this.borderColor, required this.child});
+class _HelpWalkthroughSheet extends StatelessWidget {
+  const _HelpWalkthroughSheet();
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(13),
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: borderColor.withOpacity(0.85)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.25),
-            blurRadius: 16,
-            offset: const Offset(0, 8),
+    return SafeArea(
+      child: FractionallySizedBox(
+        heightFactor: 0.88,
+        child: Container(
+          decoration: const BoxDecoration(
+            color: Color(0xFF101E31),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
           ),
-        ],
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 10, 8, 6),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.help_outline_rounded,
+                      color: Color(0xFF8AB9FF),
+                      size: 21,
+                    ),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'Help Walkthrough',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Close',
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close_rounded),
+                      color: Colors.white70,
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        'Follow these steps to trim a WAV or combine two audio files.',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.72),
+                          fontSize: 12,
+                          height: 1.3,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      const _GuideContent(),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
-      child: child,
     );
   }
 }
 
-class _PanelHeader extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final Color color;
-
-  const _PanelHeader(
-      {required this.icon, required this.title, required this.color});
+class _GuideContent extends StatelessWidget {
+  const _GuideContent();
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    return const Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Icon(icon, color: color, size: 18),
-        const SizedBox(width: 7),
-        Text(
-          title,
-          style: TextStyle(
-              color: color, fontSize: 16, fontWeight: FontWeight.w900),
+        _GuideSection(
+          title: 'Trim Audio',
+          accentColor: Color(0xFF1E7BFF),
+          backgroundColor: Color(0xFFF4F7FB),
+          borderColor: Color(0xFFD9E3EF),
+          titleColor: Color(0xFF102033),
+          textColor: Color(0xFF26364A),
+          steps: [
+            _GuideStep(
+              icon: Icons.audio_file_rounded,
+              color: Color(0xFF1E7BFF),
+              text: 'Choose an audio file.',
+            ),
+            _GuideStep(
+              icon: Icons.play_arrow_rounded,
+              color: Color(0xFF1E7BFF),
+              text: 'Use Play, Stop, and Restart to review the audio.',
+            ),
+            _GuideStep(
+              icon: Icons.tune_rounded,
+              color: Color(0xFF7C4DFF),
+              text:
+                  'Drag the two purple handles on the waveform to select the start and end of the audio.',
+            ),
+            _GuideStep(
+              icon: Icons.text_fields_rounded,
+              color: Color(0xFF1E7BFF),
+              text: 'Enter the WAV filename, then tap Save Trimmed WAV.',
+            ),
+          ],
+        ),
+        _GuideDivider(),
+        _GuideSection(
+          title: 'Concatenate Audio',
+          accentColor: Color(0xFF18A957),
+          backgroundColor: Color(0xFFDDF8E8),
+          borderColor: Color(0xFF9ADBB5),
+          titleColor: Color(0xFF10251A),
+          textColor: Color(0xFF10251A),
+          steps: [
+            _GuideStep(
+              icon: Icons.looks_one_rounded,
+              color: Color(0xFF138947),
+              text: 'Choose file one.',
+            ),
+            _GuideStep(
+              icon: Icons.looks_two_rounded,
+              color: Color(0xFF138947),
+              text: 'Choose file two.',
+            ),
+            _GuideStep(
+              icon: Icons.merge_type_rounded,
+              color: Color(0xFF138947),
+              text: 'Tap Concatenate & Save WAV, then choose a save location.',
+            ),
+          ],
         ),
       ],
     );
   }
 }
 
-class _CompactFilePickerRow extends StatelessWidget {
-  final String label;
-  final String? fileName;
-  final String buttonText;
+class _GuideSection extends StatelessWidget {
+  final String title;
+  final Color accentColor;
+  final Color backgroundColor;
+  final Color borderColor;
+  final Color titleColor;
+  final Color textColor;
+  final List<_GuideStep> steps;
+
+  const _GuideSection({
+    required this.title,
+    required this.accentColor,
+    required this.backgroundColor,
+    required this.borderColor,
+    required this.titleColor,
+    required this.textColor,
+    required this.steps,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: borderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 7,
+                height: 7,
+                decoration: BoxDecoration(
+                  color: accentColor,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 7),
+              Text(
+                title,
+                style: TextStyle(
+                  color: titleColor,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          ...steps.map((step) => step.withTextColor(textColor)),
+        ],
+      ),
+    );
+  }
+}
+
+class _GuideDivider extends StatelessWidget {
+  const _GuideDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Container(
+        height: 1,
+        color: const Color(0xFF4A5D73),
+      ),
+    );
+  }
+}
+
+class _GuideStep extends StatelessWidget {
+  final IconData icon;
   final Color color;
+  final String text;
+  final Color? textColor;
+
+  const _GuideStep({
+    required this.icon,
+    required this.color,
+    required this.text,
+    this.textColor,
+  });
+
+  _GuideStep withTextColor(Color color) {
+    return _GuideStep(
+      icon: icon,
+      color: this.color,
+      text: text,
+      textColor: color,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 7),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 17),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                color: textColor ?? Colors.white.withValues(alpha: 0.82),
+                fontSize: 12,
+                height: 1.3,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ChooseSourceButton extends StatelessWidget {
+  final bool isLoading;
   final VoidCallback? onPressed;
 
-  const _CompactFilePickerRow({
-    required this.label,
-    required this.fileName,
-    required this.buttonText,
-    required this.color,
-    required this.onPressed,
+  const _ChooseSourceButton({required this.isLoading, required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 58,
+      child: ElevatedButton(
+        onPressed: onPressed,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFF1E7BFF),
+          disabledBackgroundColor: const Color(0xFF52667C),
+          foregroundColor: Colors.white,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.audio_file_rounded, size: 22),
+            const SizedBox(width: 10),
+            Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  isLoading ? 'Loading...' : 'Choose Audio File',
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                const Text(
+                  'MP3 · WAV · M4A · AAC',
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SelectedFileName extends StatelessWidget {
+  final String fileName;
+
+  const _SelectedFileName({required this.fileName});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 32,
+      alignment: Alignment.centerLeft,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF101E31),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFF263C58)),
+      ),
+      child: Text(
+        fileName,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
+class _WaveformSelector extends StatelessWidget {
+  final bool enabled;
+  final List<double> waveformData;
+  final double startFraction;
+  final double endFraction;
+  final double playheadFraction;
+  final ValueChanged<RangeValues>? onChanged;
+
+  const _WaveformSelector({
+    required this.enabled,
+    required this.waveformData,
+    required this.startFraction,
+    required this.endFraction,
+    required this.playheadFraction,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final values = RangeValues(
+      startFraction.clamp(0.0, 1.0),
+      endFraction.clamp(0.0, 1.0),
+    );
+
+    return SizedBox(
+      height: 126,
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: CustomPaint(
+              painter: _SelectionWaveformPainter(
+                waveformData: waveformData,
+                startFraction: values.start,
+                endFraction: values.end,
+                playheadFraction: playheadFraction,
+                enabled: enabled,
+              ),
+            ),
+          ),
+          Positioned.fill(
+            child: SliderTheme(
+              data: const SliderThemeData(
+                trackHeight: 0,
+                activeTrackColor: Colors.transparent,
+                inactiveTrackColor: Colors.transparent,
+                thumbColor: Color(0xFFB883FF),
+                disabledThumbColor: Color(0xFF586171),
+                overlayColor: Color(0x33B883FF),
+                rangeThumbShape:
+                    RoundRangeSliderThumbShape(enabledThumbRadius: 13),
+              ),
+              child: RangeSlider(
+                values: values,
+                min: 0,
+                max: 1,
+                onChanged: enabled ? onChanged : null,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SelectionWaveformPainter extends CustomPainter {
+  final List<double> waveformData;
+  final double startFraction;
+  final double endFraction;
+  final double playheadFraction;
+  final bool enabled;
+
+  const _SelectionWaveformPainter({
+    required this.waveformData,
+    required this.startFraction,
+    required this.endFraction,
+    required this.playheadFraction,
+    required this.enabled,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final background = RRect.fromRectAndRadius(
+      Offset.zero & size,
+      const Radius.circular(14),
+    );
+    canvas.drawRRect(background, Paint()..color = const Color(0xFF101E31));
+
+    final startX = size.width * startFraction;
+    final endX = size.width * endFraction;
+    canvas.drawRect(
+      Rect.fromLTRB(startX, 0, endX, size.height),
+      Paint()
+        ..color = enabled ? const Color(0x332FB7FF) : const Color(0x22586171),
+    );
+
+    final barCount = math.max(44, (size.width / 6).floor());
+    final gap = size.width / barCount;
+    final centerY = size.height / 2;
+    final selectedPaint = Paint()
+      ..color = enabled ? const Color(0xFF64D7FF) : const Color(0xFF697485)
+      ..strokeWidth = 4.2
+      ..strokeCap = StrokeCap.round;
+    final idlePaint = Paint()
+      ..color = const Color(0xFF3A4B63)
+      ..strokeWidth = 4.2
+      ..strokeCap = StrokeCap.round;
+
+    final maxAmp = waveformData.isEmpty
+        ? 1.0
+        : waveformData.fold<double>(
+            0.08, (max, value) => math.max(max, value.abs()));
+
+    for (var i = 0; i < barCount; i++) {
+      final x = (i + 0.5) * gap;
+      final amplitude = waveformData.isEmpty
+          ? _syntheticAmplitude(i)
+          : _waveAmplitude(i, barCount, maxAmp);
+      final height = (size.height * 0.18) + (size.height * 0.68 * amplitude);
+      final paint = x >= startX && x <= endX ? selectedPaint : idlePaint;
+      canvas.drawLine(
+        Offset(x, centerY - height / 2),
+        Offset(x, centerY + height / 2),
+        paint,
+      );
+    }
+
+    if (enabled) {
+      final playheadX = size.width * playheadFraction.clamp(0.0, 1.0);
+      canvas.drawLine(
+        Offset(playheadX, 8),
+        Offset(playheadX, size.height - 8),
+        Paint()
+          ..color = Colors.white
+          ..strokeWidth = 2.4
+          ..strokeCap = StrokeCap.round,
+      );
+    }
+  }
+
+  double _waveAmplitude(int index, int count, double maxAmp) {
+    final sourceIndex =
+        ((index / (count - 1)) * (waveformData.length - 1)).round();
+    return math
+        .sqrt((waveformData[sourceIndex].abs() / maxAmp).clamp(0.0, 1.0));
+  }
+
+  double _syntheticAmplitude(int index) {
+    return 0.25 + ((math.sin(index * 0.72) + 1) * 0.5 * 0.75);
+  }
+
+  @override
+  bool shouldRepaint(covariant _SelectionWaveformPainter oldDelegate) {
+    return oldDelegate.waveformData != waveformData ||
+        oldDelegate.startFraction != startFraction ||
+        oldDelegate.endFraction != endFraction ||
+        oldDelegate.playheadFraction != playheadFraction ||
+        oldDelegate.enabled != enabled;
+  }
+}
+
+class _PlaybackRow extends StatelessWidget {
+  final bool hasFile;
+  final bool isPlaying;
+  final Future<void> Function()? onPlay;
+  final Future<void> Function()? onStop;
+  final Future<void> Function()? onPreview;
+  final Future<void> Function()? onRestart;
+
+  const _PlaybackRow({
+    required this.hasFile,
+    required this.isPlaying,
+    required this.onPlay,
+    required this.onStop,
+    required this.onPreview,
+    required this.onRestart,
   });
 
   @override
   Widget build(BuildContext context) {
     return Row(
       children: [
-        SizedBox(
-          width: 47,
-          child: Text(label,
-              style: const TextStyle(
-                  color: Colors.white70,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w800)),
-        ),
-        SizedBox(
-          height: 34,
-          child: ElevatedButton.icon(
-            onPressed: onPressed,
-            icon: const Icon(Icons.folder_open_rounded, size: 14),
-            label: Text(buttonText),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: color,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-              minimumSize: const Size(76, 34),
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(18)),
-              textStyle:
-                  const TextStyle(fontSize: 11, fontWeight: FontWeight.w900),
-            ),
+        Expanded(
+          child: _FilledButton(
+            icon: isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+            label: 'Play',
+            color: const Color(0xFF18A957),
+            onPressed: hasFile ? onPlay : null,
           ),
         ),
-        const SizedBox(width: 8),
+        const SizedBox(width: 6),
         Expanded(
-          child: Container(
-            height: 34,
-            alignment: Alignment.centerLeft,
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.18),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.white.withOpacity(0.12)),
-            ),
-            child: Text(
-              fileName ?? 'No file',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w600),
-            ),
+          child: _FilledButton(
+            icon: Icons.stop_rounded,
+            label: 'Stop',
+            color: const Color(0xFFE52A2A),
+            onPressed: hasFile ? onStop : null,
+          ),
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: _FilledButton(
+            icon: Icons.volume_up_rounded,
+            label: 'Preview',
+            color: const Color(0xFF1E7BFF),
+            onPressed: hasFile ? onPreview : null,
+          ),
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: _FilledButton(
+            icon: Icons.restart_alt_rounded,
+            label: 'Restart',
+            color: const Color(0xFF1E7BFF),
+            onPressed: hasFile ? onRestart : null,
           ),
         ),
       ],
@@ -590,25 +1088,29 @@ class _CompactFilePickerRow extends StatelessWidget {
   }
 }
 
-class _ActionButton extends StatelessWidget {
+class _FilledButton extends StatelessWidget {
   final IconData? icon;
   final String label;
   final Color color;
+  final Color? disabledColor;
   final Future<void> Function()? onPressed;
   final bool busy;
+  final double height;
 
-  const _ActionButton({
+  const _FilledButton({
     required this.icon,
     required this.label,
     required this.color,
     required this.onPressed,
+    this.disabledColor,
     this.busy = false,
+    this.height = 40,
   });
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 42,
+      height: height,
       child: ElevatedButton.icon(
         onPressed: onPressed == null ? null : () => onPressed!(),
         icon: busy
@@ -616,115 +1118,178 @@ class _ActionButton extends StatelessWidget {
                 width: 15,
                 height: 15,
                 child: CircularProgressIndicator(
-                    strokeWidth: 2, color: Colors.white))
-            : Icon(icon, size: 17),
+                    strokeWidth: 2, color: Colors.white),
+              )
+            : Icon(icon, size: 16),
         label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
         style: ElevatedButton.styleFrom(
           backgroundColor: color,
-          disabledBackgroundColor: color.withOpacity(0.45),
+          disabledBackgroundColor:
+              disabledColor ?? color.withValues(alpha: 0.42),
           foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(horizontal: 10),
+          disabledForegroundColor: Colors.white70,
+          padding: const EdgeInsets.symmetric(horizontal: 6),
           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900),
+          textStyle:
+              const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w900),
         ),
       ),
     );
   }
 }
 
-class _TimeTile extends StatelessWidget {
-  final String label;
-  final Duration value;
-  final String buttonText;
-  final Color color;
-  final VoidCallback? onPressed;
+class _OutputNameField extends StatelessWidget {
+  final TextEditingController controller;
+  final bool enabled;
+  final String? prompt;
 
-  const _TimeTile({
-    required this.label,
-    required this.value,
-    required this.buttonText,
-    required this.color,
-    required this.onPressed,
+  const _OutputNameField({
+    required this.controller,
+    required this.enabled,
+    this.prompt,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.16),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.white.withOpacity(0.12)),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label,
-                    style: TextStyle(
-                        color: color,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w900)),
-                const SizedBox(height: 4),
-                Text(_formatMs(value), style: _monoStyle(11)),
-              ],
-            ),
+    return SizedBox(
+      height: 36,
+      child: TextField(
+        controller: controller,
+        enabled: enabled,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+        ),
+        decoration: InputDecoration(
+          filled: true,
+          fillColor: const Color(0xFF101E31),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+          hintText: prompt,
+          hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.72)),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: const BorderSide(color: Color(0xFF263C58)),
           ),
-          SizedBox(
-            height: 30,
-            child: ElevatedButton(
-              onPressed: onPressed,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: color,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 10),
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16)),
-                textStyle:
-                    const TextStyle(fontSize: 11, fontWeight: FontWeight.w900),
-              ),
-              child: Text(buttonText),
-            ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: const BorderSide(color: Color(0xFF263C58)),
           ),
-        ],
+          focusedBorder: const OutlineInputBorder(
+            borderRadius: BorderRadius.all(Radius.circular(10)),
+            borderSide: BorderSide(color: Color(0xFF8AB9FF)),
+          ),
+        ),
       ),
     );
   }
 }
 
-class _StatusLine extends StatelessWidget {
-  final String text;
+class _ConcatFileRow extends StatelessWidget {
+  final String fileName;
+  final Future<void> Function()? onPressed;
 
-  const _StatusLine({required this.text});
+  const _ConcatFileRow({required this.fileName, required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Container(
+            height: 38,
+            alignment: Alignment.centerLeft,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(9),
+              border: Border.all(color: const Color(0xFFB8E5CA)),
+            ),
+            child: Text(
+              fileName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Color(0xFF10251A),
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        SizedBox(
+          height: 38,
+          child: ElevatedButton.icon(
+            onPressed: onPressed == null ? null : () => onPressed!(),
+            icon: const Icon(Icons.folder_open_rounded, size: 15),
+            label: const Text('Choose File'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF1E7BFF),
+              disabledBackgroundColor: const Color(0xFF9AA1A8),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
+              textStyle:
+                  const TextStyle(fontSize: 11, fontWeight: FontWeight.w900),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _StatusText extends StatelessWidget {
+  final String text;
+  final Color color;
+  final bool darkBackground;
+
+  const _StatusText({
+    required this.text,
+    required this.color,
+    this.darkBackground = false,
+  });
 
   @override
   Widget build(BuildContext context) {
     final isError = text.toLowerCase().contains('failed') ||
         text.toLowerCase().contains('required');
-    return Text(
-      text,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: TextStyle(
-        color: isError ? Colors.redAccent : Colors.white.withOpacity(0.68),
-        fontSize: 10.5,
-        fontWeight: FontWeight.w600,
+    return Container(
+      alignment: Alignment.centerLeft,
+      padding: darkBackground
+          ? const EdgeInsets.symmetric(horizontal: 8, vertical: 6)
+          : EdgeInsets.zero,
+      decoration: darkBackground
+          ? BoxDecoration(
+              color: const Color(0xFF10251A),
+              borderRadius: BorderRadius.circular(8),
+            )
+          : null,
+      child: Text(
+        text,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: isError ? Colors.redAccent : color,
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+        ),
       ),
     );
   }
 }
 
-TextStyle _monoStyle(double size) => TextStyle(
-      color: Colors.white.withOpacity(0.96),
-      fontSize: size,
-      fontFamily: 'monospace',
-      fontWeight: FontWeight.w800,
-    );
+const TextStyle _timeStyle = TextStyle(
+  color: Colors.white,
+  fontSize: 12,
+  fontFamily: 'monospace',
+  fontWeight: FontWeight.w900,
+);
 
 String _formatMs(Duration duration) {
   final totalMs = duration.inMilliseconds.clamp(0, 1 << 62);

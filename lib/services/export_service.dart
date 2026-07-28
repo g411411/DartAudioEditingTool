@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:ffmpeg_kit_flutter_new_audio/ffmpeg_kit.dart';
 import 'package:ffmpeg_kit_flutter_new_audio/return_code.dart';
 import 'package:path_provider/path_provider.dart';
@@ -112,54 +113,100 @@ class ExportService {
     final Uint8List bytes = await sourceFile.readAsBytes();
 
     if (Platform.isAndroid) {
-      return await FilePicker.saveFile(
-        dialogTitle: 'Save audio file',
-        fileName: result.outputFileName,
-        type: FileType.custom,
-        allowedExtensions: [ext],
+      return _saveWavWithAndroidSaf(
+        fileName: _ensureExtension(result.outputFileName, ext),
         bytes: bytes,
       );
     }
-    try {
-      final String? selectedPath = await FilePicker.saveFile(
-        dialogTitle: 'Select location to save trimmed audio',
-        fileName: result.outputFileName,
-        initialDirectory: downloadsDir,
-        type: FileType.custom,
-        allowedExtensions: [ext],
-        bytes: bytes,
-      );
 
-      if (selectedPath != null && selectedPath.isNotEmpty) {
-        final targetFile = File(selectedPath);
-        // If file_picker did not automatically write bytes natively (e.g. desktop platforms)
-        if (!targetFile.existsSync() || targetFile.lengthSync() == 0) {
-          try {
-            await targetFile.writeAsBytes(bytes, flush: true);
-          } catch (_) {
-            // Ignore POSIX permission errors if Scoped Storage/SAF already saved the file bytes
-          }
-        }
-        return selectedPath;
-      }
-    } catch (e) {
-      // Fallback: ask for folder path
-      try {
-        final String? selectedDirectory = await FilePicker.getDirectoryPath(
-          dialogTitle: 'Select folder to save audio',
-          initialDirectory: downloadsDir,
-        );
-        if (selectedDirectory != null && selectedDirectory.isNotEmpty) {
-          final targetPath = p.join(selectedDirectory, result.outputFileName);
-          final targetFile = File(targetPath);
-          await targetFile.writeAsBytes(bytes, flush: true);
-          return targetPath;
-        }
-      } catch (fallbackError) {
-        throw Exception(
-            'Cannot write to selected location ($fallbackError). Please select the Downloads folder or a supported directory.');
-      }
+    if (Platform.isIOS) {
+      final savedPath = await FilePicker.saveFile(
+        dialogTitle: 'Save audio file',
+        fileName: _ensureExtension(result.outputFileName, ext),
+        type: FileType.custom,
+        allowedExtensions: [ext],
+        bytes: bytes,
+      );
+      return savedPath;
     }
-    return null;
+
+    final String? selectedPath = await FilePicker.saveFile(
+      dialogTitle: 'Save audio file',
+      fileName: result.outputFileName,
+      initialDirectory: downloadsDir,
+      type: FileType.custom,
+      allowedExtensions: [ext],
+      bytes: bytes,
+    );
+
+    if (selectedPath == null || selectedPath.isEmpty) {
+      return null;
+    }
+
+    final targetFile = File(selectedPath);
+    await targetFile.writeAsBytes(bytes, flush: true);
+
+    final savedSize = await targetFile.length();
+    if (savedSize != bytes.length) {
+      throw Exception(
+        'Saved file size mismatch at $selectedPath. Expected ${bytes.length} bytes, wrote $savedSize bytes.',
+      );
+    }
+
+    return selectedPath;
+  }
+
+  static const MethodChannel _androidSaveChannel =
+      MethodChannel('mp3trim/save_audio');
+
+  static Future<String?> _saveWavWithAndroidSaf({
+    required String fileName,
+    required Uint8List bytes,
+  }) {
+    return _androidSaveChannel.invokeMethod<String>('saveWav', {
+      'fileName': fileName,
+      'bytes': bytes,
+    });
+  }
+
+  static String _ensureExtension(String fileName, String extension) {
+    if (extension.isEmpty || p.extension(fileName).isNotEmpty) {
+      return fileName;
+    }
+    return '$fileName.$extension';
+  }
+
+  static Future<String> _saveToAndroidDownloads(
+    String fileName,
+    Uint8List bytes,
+  ) async {
+    final downloadsDir = Directory('/storage/emulated/0/Download');
+    if (!downloadsDir.existsSync()) {
+      throw Exception('Downloads folder is not available.');
+    }
+
+    final targetPath = _uniquePath(downloadsDir.path, fileName);
+    final targetFile = File(targetPath);
+    await targetFile.writeAsBytes(bytes, flush: true);
+
+    if (!targetFile.existsSync() || targetFile.lengthSync() == 0) {
+      throw Exception('Saved file could not be verified.');
+    }
+
+    return targetPath;
+  }
+
+  static String _uniquePath(String directory, String fileName) {
+    final baseName = p.basenameWithoutExtension(fileName);
+    final extension = p.extension(fileName);
+    var candidate = p.join(directory, fileName);
+    var index = 1;
+
+    while (File(candidate).existsSync()) {
+      candidate = p.join(directory, '${baseName}_$index$extension');
+      index++;
+    }
+
+    return candidate;
   }
 }

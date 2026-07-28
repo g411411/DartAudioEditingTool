@@ -50,13 +50,16 @@ class _ExportDialogState extends State<ExportDialog>
   }
 
   Future<void> _saveWithPicker() async {
-    setState(() { _saving = true; _saveMessage = null; });
+    setState(() {
+      _saving = true;
+      _saveMessage = null;
+    });
     try {
       final path = await ExportService.saveWithUserChoice(widget.result);
       setState(() {
         _saving = false;
         if (path != null) {
-          _saveMessage = 'Saved to: $path';
+          _saveMessage = 'Saved in ${_savedFolderName(path)}';
         }
       });
     } catch (e) {
@@ -64,6 +67,33 @@ class _ExportDialogState extends State<ExportDialog>
         _saving = false;
         _saveMessage = 'Save failed: $e';
       });
+    }
+  }
+
+  String _savedFolderName(String savedLocation) {
+    final normalized = _decodeSavedLocation(
+      savedLocation.trim(),
+    ).split('?').first.replaceAll('\\', '/');
+    final pathPart =
+        normalized.startsWith('content://') && normalized.contains(':')
+            ? normalized.substring(normalized.lastIndexOf(':') + 1)
+            : normalized;
+    final lastSeparator = pathPart.lastIndexOf('/');
+
+    if (lastSeparator <= 0) {
+      return FileUtils.fileName(pathPart);
+    }
+
+    final parentPath = pathPart.substring(0, lastSeparator);
+    final folderName = parentPath.substring(parentPath.lastIndexOf('/') + 1);
+    return folderName.isEmpty ? parentPath : folderName;
+  }
+
+  String _decodeSavedLocation(String savedLocation) {
+    try {
+      return Uri.decodeComponent(savedLocation);
+    } catch (_) {
+      return savedLocation;
     }
   }
 
@@ -104,8 +134,8 @@ class _ExportDialogState extends State<ExportDialog>
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                   ),
-                  borderRadius: const BorderRadius.vertical(
-                      top: Radius.circular(24)),
+                  borderRadius:
+                      const BorderRadius.vertical(top: Radius.circular(24)),
                 ),
                 child: Column(
                   children: [
@@ -151,13 +181,15 @@ class _ExportDialogState extends State<ExportDialog>
                     _InfoRow(
                       icon: Icons.timer_outlined,
                       label: 'Duration',
-                      value: DurationFormatter.format(widget.result.outputDuration),
+                      value: DurationFormatter.format(
+                          widget.result.outputDuration),
                     ),
                     const SizedBox(height: 8),
                     _InfoRow(
                       icon: Icons.data_usage_rounded,
                       label: 'Size',
-                      value: FileUtils.formatFileSize(widget.result.outputSizeBytes),
+                      value: FileUtils.formatFileSize(
+                          widget.result.outputSizeBytes),
                     ),
                   ],
                 ),
@@ -211,7 +243,8 @@ class _ExportDialogState extends State<ExportDialog>
                                 child: SizedBox(
                                   width: 22,
                                   height: 22,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2),
                                 ),
                               ),
                             )
